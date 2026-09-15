@@ -1,0 +1,118 @@
+name: jarvis
+
+services:
+  ollama:
+    image: ollama/ollama:rocm
+    pull_policy: always
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    tmpfs:
+      - /root/.ollama/models:rw,size=64g,mode=0700
+    devices:
+      - "/dev/kfd"
+      - "/dev/dri"
+    tty: true
+    environment:
+      ROCR_VISIBLE_DEVICES: ${ROCR_VISIBLE_DEVICES:-0}
+      HSA_OVERRIDE_GFX_VERSION: ${HSA_OVERRIDE_GFX_VERSION:-10.3.0}
+      OLLAMA_CONTEXT_LENGTH: ${OLLAMA_CONTEXT_LENGTH:-131072}
+      OLLAMA_MAX_LOADED_MODELS: ${OLLAMA_MAX_LOADED_MODELS:-1}
+      OLLAMA_KV_CACHE_TYPE: ${OLLAMA_KV_CACHE_TYPE:-q4_0}
+      OLLAMA_FLASH_ATTENTION: ${OLLAMA_FLASH_ATTENTION:-1}
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:v0.11.3
+    ports:
+      - "${OPEN_WEBUI_APP_PORT:-3000}:8080"
+    volumes:
+      - open-webui:/app/backend/data
+    depends_on:
+      - ollama
+    environment:
+      WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:-change-me}
+      WEBUI_NAME: Open WebUI
+      ENABLE_OPENAI_API: "false"
+      ENABLE_OLLAMA_API: "true"
+      ENABLE_WEB_SEARCH: "true"
+      WEB_SEARCH_ENGINE: "searxng"
+      WEB_SEARCH_RESULT_COUNT: 3
+      WEB_SEARCH_CONCURRENT_REQUESTS: 10
+      SEARXNG_QUERY_URL: ${SEARXNG_QUERY_URL:-http://host.docker.internal:8080/search?q=<query>}
+      DOCLING_PARAMS: "{\"do_ocr\": true, \"force_ocr\": false, \"pdf_backend\": \"pypdfium2\", \"ocr_engine\": \"tesseract\", \"ocr_lang\": \"eng\", \"table_mode\": \"accurate\"}"
+    restart: unless-stopped
+
+  open-terminal:
+    image: ghcr.io/open-webui/open-terminal
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - open-terminal:/home/user
+    depends-on: open-webui
+    environment:
+      OPEN_TERMINAL_API_KEY: ${OPEN_TERMINAL_API_KEY:-change-me}
+
+  docling-serve:
+    image: quay.io/docling-project/docling-serve:latest
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    environment:
+      # Enable the web UI for testing
+      DOCLING_SERVE_ENABLE_UI: false
+      # CRITICAL: Required for picture description with external LLM APIs
+      DOCLING_SERVE_ENABLE_REMOTE_SERVICES: true
+      DOCLING_SERVE_ALLOW_CUSTOM_PICTURE_DESCRIPTION_CONFIG: true
+      # Maximum wait time for sync requests (seconds) - increase for large documents
+      DOCLING_SERVE_MAX_SYNC_WAIT: 600
+      # Number of local engine workers
+      DOCLING_SERVE_ENG_LOC_NUM_WORKERS: 2
+      # CPU thread configuration
+      DOCLING_NUM_THREADS: 8
+      OMP_NUM_THREADS: 8
+      MKL_NUM_THREADS: 8
+      # IMPORTANT: Keep at 1 to avoid "Task Not Found" errors
+      UVICORN_WORKERS: 1
+      DOCLING_API_KEY: ${DOCLING_API_KEY:-change-me}
+    # For GPU support with NVIDIA:
+    # deploy:
+    #  resources:
+    #    reservations:
+    #      devices:
+    #        - driver: nvidia
+    #          count: all
+    #          capabilities: [gpu]
+
+  searxng-core:
+    image: docker.io/searxng/searxng:${SEARXNG_VERSION:-latest}
+    restart: always
+    ports:
+      - ${SEARXNG_HOST:+${SEARXNG_HOST}:}${SEARXNG_PORT:-8080}:${SEARXNG_PORT:-8080}
+    volumes:
+      - ./searxng-core-config:/etc/searxng:Z
+      - searxng-core-data:/var/cache/searxng/
+    depends_on:
+      - open-webui
+    environment:
+      SEARXNG_VERSION: ${SEARXNG_VERSION:-latest}
+      SEARXNG_HOST: ${SEARXNG_HOST:-[::]}
+      SEARXNG_PORT: ${SEARXNG_PORT:-8089}
+
+  searxng-valkey:
+    image: docker.io/valkey/valkey:9-alpine
+    command: valkey-server --save 30 1 --loglevel warning
+    restart: always
+    volumes:
+      - searxng-valkey-data:/data/
+    depends_on:
+      - open-webui
+
+volumes:
+  ollama:
+  open-terminal:
+  open-webui:
+  searxng-core-data:
+  searxng-valkey-data:
