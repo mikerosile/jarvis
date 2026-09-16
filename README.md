@@ -9,6 +9,20 @@ The specific choices in this setup were driven by the hardware the stack runs on
 - **AMD RX 6950 XT with 16 GB VRAM (RDNA 2).** The host's GPU is an AMD card, so the Ollama service uses the ROCm image (`ollama/ollama:rocm`) and passes `/dev/kfd` and `/dev/dri` into the container for direct GPU access. `HSA_OVERRIDE_GFX_VERSION` is set so ROCm targets the correct kernel build for the RDNA 2 architecture.
 - **128 GB system RAM, 64 GB tmpfs for models.** The host has 128 GB of RAM. Half of that (64 GB) is allocated to a RAM-backed `tmpfs` mount over `/root/.ollama/models`. This lets models load and unload from RAM rather than disk, which is fast. Ollama is configured with `OLLAMA_MAX_LOADED_MODELS=1` so only a single model is ever resident, making rapid switching between models possible — the working set comfortably fits in the 64 GB tmpfs, and the large model files are streamed from RAM each time a model is selected rather than paged in from slower storage.
 
+## Prerequisites
+
+If running containers as rootless ...
+
+* The user running the containers will need to be a member of the "video" and "render" user groups.
+```bash
+sudo usermod -aG video,render $USER
+```
+* Allow the user to continue running processes after logout
+```bash
+loginctl enable-linger $USER
+```
+* Use podman-compose to create a systemd service to run the stack in the background.  See `podman-compose systemd --help` for instruction.
+
 ## Services
 
 | Service | Image | Port | Purpose |
