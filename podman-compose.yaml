@@ -15,7 +15,7 @@ services:
     # command: [ "--port", "9931", "--model", "/models/qwen3.8-27b/Qwen3.8-27B-UD-IQ4_XS.gguf", "--ctx-size", "65535", "--jinja", "--cache-type-k", "q4_0", "--cache-type-v", "q4_0", "--flash-attn", "on", "--n-gpu-layers", "-1", "--threads", "8", "--device", "Vulkan0" ]
     cpuset: "0-7,16-23" # AMD Ryzen 9 7950X3D, CCD0 has the 3D V-cache
     environment:
-      GGML_VK_VISIBLE_DEVICES: "1" # "System has iGPU at idx 0, force llama.cpp to only use dGPU)
+      GGML_VK_VISIBLE_DEVICES: ${GGML_VK_VISIBLE_DEVICES:-1} # "System has iGPU at idx 0, force llama.cpp to only use dGPU)
       LLAMA_ARG_ENDPOINT_METRICS: "1"
       LLAMA_ARG_ENDPOINT_SLOTS: "1"
 
