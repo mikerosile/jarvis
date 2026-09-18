@@ -1,27 +1,39 @@
 name: jarvis
 
 services:
-  ollama:
-    image: ollama/ollama:rocm
-    pull_policy: always
+  llama-dgpu:
+    image: ghcr.io/ggml-org/llama.cpp:server-vulkan
     restart: unless-stopped
     ports:
-      - "11434:11434"
+      - "9931:9931"
     volumes:
-      - ollama:/root/.ollama
-    tmpfs:
-      - /root/.ollama/models:rw,size=64g,mode=0700
+      - ${HOME}/models:/models:Z
     devices:
       - "/dev/kfd"
       - "/dev/dri"
-    tty: true
+    command: [ "--port", "9931", "--device", "Vulkan0", "--models-dir", "/models", "--models-preset", "/models/models-preset.ini", "--models-max", "1" ]
+    # command: [ "--port", "9931", "--model", "/models/qwen3.8-27b/Qwen3.8-27B-UD-IQ4_XS.gguf", "--ctx-size", "65535", "--jinja", "--cache-type-k", "q4_0", "--cache-type-v", "q4_0", "--flash-attn", "on", "--n-gpu-layers", "-1", "--threads", "8", "--device", "Vulkan0" ]
+    cpuset: "0-7,16-23" # AMD Ryzen 9 7950X3D, CCD0 has the 3D V-cache
     environment:
-      ROCR_VISIBLE_DEVICES: ${ROCR_VISIBLE_DEVICES:-0}
-      HSA_OVERRIDE_GFX_VERSION: ${HSA_OVERRIDE_GFX_VERSION:-10.3.0}
-      OLLAMA_CONTEXT_LENGTH: ${OLLAMA_CONTEXT_LENGTH:-131072}
-      OLLAMA_MAX_LOADED_MODELS: ${OLLAMA_MAX_LOADED_MODELS:-1}
-      OLLAMA_KV_CACHE_TYPE: ${OLLAMA_KV_CACHE_TYPE:-q4_0}
-      OLLAMA_FLASH_ATTENTION: ${OLLAMA_FLASH_ATTENTION:-1}
+      GGML_VK_VISIBLE_DEVICES: "1" # "System has iGPU at idx 0, force llama.cpp to only use dGPU)
+      LLAMA_ARG_ENDPOINT_METRICS: "1"
+      LLAMA_ARG_ENDPOINT_SLOTS: "1"
+
+#  llama-cpu:
+#    image: ghcr.io/ggml-org/llama.cpp:server-vulkan
+#    restart: unless-stopped
+#    ports:
+#      - "9932:9932"
+#    volumes:
+#      - ${HOME}/models:/models:Z
+#    devices:
+#      - "/dev/kfd"
+#      - "/dev/dri"
+#    command: [ "--port", "9932", "--model", "/models/qwen3.5-4b/Qwen3.5-4B-UD-IQ2_M.gguf", "--ctx-size", "8192", "-b", "512", "-ub", "512",  "--jinja", "--cache-type-k", "q4_0", "--cache-type-v", "q4_0", "--flash-attn", "on", "--threads", "8", "-ngl", "0", "--reasoning", "off" ]
+#    cpuset: "0-7,16-23" # AMD Ryzen 9 7950X3D, CCD0 has the 3D V-cache
+#    environment:
+#      LLAMA_ARG_ENDPOINT_METRICS: "1"
+#      LLAMA_ARG_ENDPOINT_SLOTS: "1"
 
   open-webui:
     image: ghcr.io/open-webui/open-webui:v0.11.3
@@ -30,17 +42,19 @@ services:
     volumes:
       - open-webui:/app/backend/data
     depends_on:
-      - ollama
+      - llama-dgpu
     environment:
       WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:-change-me}
       WEBUI_NAME: Open WebUI
+      CONTEXT_COMPACTION_TOKEN_THRESHOLD: 30720
+      ENABLE_CONTEXT_COMPACTION: "true"
       ENABLE_OPENAI_API: "false"
-      ENABLE_OLLAMA_API: "true"
+      ENABLE_OLLAMA_API: "false"
       ENABLE_WEB_SEARCH: "true"
       WEB_SEARCH_ENGINE: "searxng"
       WEB_SEARCH_RESULT_COUNT: 3
       WEB_SEARCH_CONCURRENT_REQUESTS: 10
-      SEARXNG_QUERY_URL: ${SEARXNG_QUERY_URL:-http://host.docker.internal:8080/search?q=<query>}
+      SEARXNG_QUERY_URL: ${SEARXNG_QUERY_URL:-http://host.docker.internal:8089/search?q=<query>}
       DOCLING_PARAMS: "{\"do_ocr\": true, \"force_ocr\": false, \"pdf_backend\": \"pypdfium2\", \"ocr_engine\": \"tesseract\", \"ocr_lang\": \"eng\", \"table_mode\": \"accurate\"}"
     restart: unless-stopped
 
@@ -48,7 +62,7 @@ services:
     image: ghcr.io/open-webui/open-terminal
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8001:8000"
     volumes:
       - open-terminal:/home/user
     depends-on: open-webui
@@ -111,7 +125,6 @@ services:
       - open-webui
 
 volumes:
-  ollama:
   open-terminal:
   open-webui:
   searxng-core-data:
