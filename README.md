@@ -55,16 +55,23 @@ All runtime configuration lives in the `.env` file that is consumed by podman-co
 
 | Variable | Used by | Purpose |
 | --- | --- | --- |
-| `GGML_VK_VISIBLE_DEVICES` | llama.cpp | Selects which Vulkan GPU (by index) the container can see and use. Can contain a single index or multiple separated by commas  with values like 0 , 0,1 , 1,0 |
-| `LLAMA_ARG_ENDPOINT_METRICS` | llama.cpp | Enables the llama.cpp server's metrics endpoint (`1` = on). |
-| `LLAMA_ARG_ENDPOINT_SLOTS` | llama.cpp | Enables the llama.cpp server's slots endpoint (`1` = on). |
+| `GGML_VK_VISIBLE_DEVICES` | llama.cpp | Selects which Vulkan GPU (by index) the container can see and use. Can contain a single index or multiple separated by commas with values like `0`, `0,1`, `1,0`. |
+| `LLAMA_PORT` | llama.cpp | Port the llama.cpp server listens on; also used for the host port mapping. |
+| `LLAMA_DEVICE` | llama.cpp | Compute device passed to the server via `--device` (e.g. `Vulkan0`). |
+| `LLAMA_MODELS_DIR` | llama.cpp | Directory passed to `--models-dir` that the router scans to discover models. |
+| `LLAMA_MODELS_PRESET` | llama.cpp | Path passed to `--models-preset` of the INI file holding per-model runtime settings. |
+| `LLAMA_MODELS_MAX` | llama.cpp | Value passed to `--models-max`: maximum number of models resident in memory at once. |
+| `LLAMA_ARG_SLEEP_IDLE_SECONDS` | llama.cpp | Value passed to `--sleep-idle-seconds`: seconds of inactivity before the loaded model unloads itself from memory. |
+| `LLAMA_ARG_ENDPOINT_SLOTS` | llama.cpp | Exposes the slots monitoring endpoint (`--slots`; enabled by default, `0` = off). |
+| `LLAMA_ARG_ENDPOINT_METRICS` | llama.cpp | Enables the Prometheus-compatible metrics endpoint (`--metrics`; disabled by default, `1` = on). |
 | `OPEN_WEBUI_APP_PORT` | Open-WebUI | Host port the Open WebUI web interface is published on. |
-| `WEBUI_SECRET_KEY` | Open-WebUI | Secret key Open WebUI uses for signing sessions/tokens. **Generate a strong random value.** |
-| `OPEN_TERMINAL_API_KEY` | Open Terminal | API key required to use the `open-terminal` container's API. **Generate a strong random value.** |
-| `DOCLING_API_KEY` | Docling | API key required to use the `docling-serve` API. **Generate a strong random value.** |
+| `WEBUI_SECRET_KEY` | Open-WebUI | Secret key Open WebUI uses for signing sessions/tokens. **Sensitive — generate a strong random value and never commit it.** |
+| `OPEN_TERMINAL_API_KEY` | Open Terminal | API key required to use the `open-terminal` container's API. **Sensitive — generate a strong random value and never commit it.** |
+| `DOCLING_PORT` | Docling | Host port the `docling-serve` API is published on. |
+| `DOCLING_API_KEY` | Docling | API key required to use the `docling-serve` API. **Sensitive — generate a strong random value and never commit it.** |
 | `SEARXNG_VERSION` | SearXNG | Version tag of the SearXNG image to run. |
 | `SEARXNG_HOST` | SearXNG | Address SearXNG listens on inside its port mapping (`[::]` = all interfaces, IPv6/IPv4). |
-| `SEARXNG_PORT` | SearXNG |Host and container port the SearXNG instance is published on. |
+| `SEARXNG_PORT` | SearXNG | Host and container port the SearXNG instance is published on. |
 | `SEARXNG_QUERY_URL` | Open-WebUI | Base URL that Open WebUI uses to query SearXNG for web search results (`<query>` is replaced with the search term). |
 
 ## Suggested models
@@ -83,6 +90,20 @@ At the same time, the weights are only part of the memory picture. At runtime th
 | `qwen3.8-27b` | Long-context general chat and reasoning. 27B model configured with a large context window for summarizing, analyzing, and discussing large documents. |
 
 Per-model server settings (context size, KV cache type, flash attention, reasoning) are not set via environment variables; they live in `~/models/models-preset.ini`, which the server loads in router mode. Each model is a subfolder of `~/models` holding a `model.gguf`, with a matching section in that file referencing it.
+
+## llama.cpp server settings
+
+The `llama-dgpu` service starts the llama.cpp server with the following command-line parameters:
+
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `--port` | `9931` (`LLAMA_PORT`) | TCP port the HTTP server listens on. |
+| `--device` | required, no default (`LLAMA_DEVICE`) | Compute device used for inference, e.g. `Vulkan0`. |
+| `--models-dir` | `/models` (`LLAMA_MODELS_DIR`) | Directory the router scans to discover available models. |
+| `--models-preset` | `/models/models-preset.ini` (`LLAMA_MODELS_PRESET`) | INI file holding the per-model runtime settings used in router mode. |
+| `--models-max` | `1` (`LLAMA_MODELS_MAX`) | Maximum number of models that may be resident in memory at once. |
+| `--sleep-idle-seconds` | `300` (`LLAMA_ARG_SLEEP_IDLE_SECONDS`) | Seconds of inactivity after which the loaded model unloads itself from memory. |
+| `--no-mmproj-offload` | *(flag, no value)* | Keeps the multimodal projection (mmproj) weights on the CPU instead of offloading them to the GPU. mmproj models are responsible for image recognition. **This is important to keep larger models (e.g. Qwen3.8-27B) fully loaded in VRAM to ensure fast text responses.** |
 
 ## SearXNG configuration
 
