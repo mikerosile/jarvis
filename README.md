@@ -1,6 +1,6 @@
 # J.A.R.V.I.S. — Just A Rather Very Intelligent System
 
-A self-hosted general use A.I. stack built around the [Open-WebUI](https://openwebui.com) platform designed to leverage an AMD RDNA2 GPU with only 16GBs of VRAM. It contains all the services you would expect from a web based A.I chat portal including web searching, coding, text-to-speech, image generation (and editing) and document parsing.  The services are containized for portability.
+A self-hosted general use A.I. stack built around the [Open-WebUI](https://openwebui.com) platform designed to leverage an AMD RDNA2 GPU with only 16GBs of VRAM targeted for single user use. It contains all the services you would expect from a web based A.I chat portal including web searching, coding, text-to-speech, image generation (and editing) and document parsing.  The services are containized for portability.
 
 ## Inspiration
 
@@ -20,6 +20,16 @@ The specific choices in this setup were driven by the hardware the stack runs on
 - **AMD RX 6950 XT with 16 GB VRAM (RDNA 2)** the host's secodnary GPU dedicated to A.I. workloads
 - 128 GBs of System RAM
 - Samsung SSD 990 PRO 2TB for hosting/loading the model to ensure fast loading of models during GPU swap operations
+
+## Operating Environment
+| Description | Specification |
+| --- | --- |
+| Operation System | Fedora 44 (x86_64) |
+| CPU | AMD Ryzen 7950X3D |
+| Sytem RAM | 128 GBs DDR5 (3600 MT/s) |
+| Integrated GPU (iGPU) | AMD Raphael / Radeon 610M<br/>* Provides primary display |
+| Dedicated GPU (dGPU) | AMD Radeon RX 6950 XT<br/>* Dedicated to inference workloads |
+| Storage | Samsung SSD 990 PRO |
 
 ## Prerequisites
 
@@ -90,41 +100,65 @@ The contents of `models/`:
 
 - **`img/`** — image generation models for THEO. One subdirectory per model (e.g. `FLUX.2-klein-4B/`), each being a whole Hugging Face repository download (weights, text encoder, tokenizer, VAE, scheduler, license and README).
 
-- **`Makefile`** — downloads LLM weights into place: for every subdirectory of `llm/` that contains a `model.url`, it runs `hf download <url>` and renames the result to `model.gguf`. This is how new models are added.
+- **`Makefile`** — downloads LLM weights into place: execute with `make all`, or download inidividual weights by executing `make <model>`.
 
-## Environment
+## Run-time Configuration
 
-All runtime configuration lives in the `.env` file that is consumed by podman-compose for handling compose-level substitution. It holds the llama.cpp GPU settings and the stack-wide settings (ports, keys, SearXNG). The file contains shell-generated secrets and must not be committed.
+All runtime configuration lives in the `.env` file that is consumed by podman-compose for handling compose-level substitution. It holds the  stack-wide settings (ports, keys, performance settings). The file contains secrets, therefore an example has been provided in [.env.example](.env.example).
 
-### Variable reference
+## Getting Started
 
-| Variable | Used by | Purpose |
-| --- | --- | --- |
-| `DOCLING_API_KEY` | Docling | API key required to use the `docling-serve` API. **Sensitive — generate a strong random value and never commit it.** |
-| `DOCLING_PORT` | Docling | Host port the `docling-serve` API is published on. |
-| `GGML_VK_VISIBLE_DEVICES` | llama.cpp | Selects which Vulkan GPU (by index) the container can see and use. Can contain a single index or multiple separated by commas with values like `0`, `0,1`, `1,0`. |
-| `LLAMA_ARG_ENDPOINT_METRICS` | llama.cpp | Enables the Prometheus-compatible metrics endpoint (`--metrics`; disabled by default, `1` = on). |
-| `LLAMA_ARG_ENDPOINT_SLOTS` | llama.cpp | Exposes the slots monitoring endpoint (`--slots`; enabled by default, `0` = off). |
-| `LLAMA_ARG_SLEEP_IDLE_SECONDS` | llama.cpp | Value passed to `--sleep-idle-seconds`: seconds of inactivity before the loaded model unloads itself from memory. |
-| `LLAMA_DEVICE` | llama.cpp | Compute device passed to the server via `--device` (e.g. `Vulkan0`). |
-| `LLAMA_MODELS_DIR` | llama.cpp | Directory passed to `--models-dir` that the router scans to discover models. |
-| `LLAMA_MODELS_MAX` | llama.cpp | Value passed to `--models-max`: maximum number of models resident in memory at once. |
-| `LLAMA_MODELS_PRESET` | llama.cpp | Path passed to `--models-preset` of the INI file holding per-model runtime settings. |
-| `LLAMA_PORT` | llama.cpp | Port the llama.cpp server listens on; also used for the host port mapping. |
-| `OPEN_TERMINAL_API_KEY` | Open Terminal | API key required to use the `open-terminal` container's API. **Sensitive — generate a strong random value and never commit it.** |
-| `OPEN_WEBUI_APP_PORT` | Open-WebUI | Host port the Open WebUI web interface is published on. |
-| `SEARXNG_QUERY_URL` | Open-WebUI | Base URL that Open WebUI uses to query SearXNG for web search results (`<query>` is replaced with the search term). |
-| `WEBUI_SECRET_KEY` | Open-WebUI | Secret key Open WebUI uses for signing sessions/tokens. **Sensitive — generate a strong random value and never commit it.** |
-| `SEARXNG_HOST` | SearXNG | Address SearXNG listens on inside its port mapping (`[::]` = all interfaces, IPv6/IPv4). |
-| `SEARXNG_PORT` | SearXNG | Host and container port the SearXNG instance is published on. |
-| `SEARXNG_VERSION` | SearXNG | Version tag of the SearXNG image to run. |
+- Follow the [Prerequisites](#prerequisites) section
+- Review environemnt variables for configuration directives:
+  - [./arc/.env](./arc/.env) - Note `GGML_VK_VISIBLE_DEVICES` and `LLAMA_DEVICE`
+  - [.env.example](.env.example) - Copy .env.example to .env, then review and update hostname, API keys, etc.
+- Review host CPU architecture from command output `lscpu --extended`, and update or remove `cpuset` directives
+  - [./arc/compose.yaml](./arc/compose.yaml) -- `services.arc`
+  - [compose.yaml](compose.yaml) -- `services.remy`
+- Replace `your.host.name.com` in [.env.example](.env.example), [roxie/nginx.conf](roxie/nginx.conf) to a valid hostname which will host J.A.R.V.I.S.
+- Obtain or create an SSL/TLS certificate for ROXIE ( See [roxie/README.md](roxie/README.md#certificates) for details. )
+- **Assuming SELinux is enabled**, copy a root certificate or cert bundle (e.g. /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem) to /etc/ssl/certs/ca-certificates.crt to ensure Open WebUI (LOKI) can validate certificates.  Copying the file and bind mounting the file as a 'volume' is easier than dealing with modifying SELinux contexts.
+- Execute `make all` from the [./models](./models) subdirectory to download the community A.I. models (**~100 GBs**)
+- Execute [./scripts/install.sh](./scripts/install.sh) to install the required Systemd User services for PHIL, ARC and THEO.
+  - Verify with [./scripts/status.sh](./scripts/status.sh)
+- Start the rest of the stack using `podman-compose up -d` or `docker compose up -d` from the base (this) directory.
+
+## Extending
+
+### Open-WebUI Computer
+
+Consider extending the environment with [Open-WebUI's Computer](https://openwebui.com/computer) service which adds:
+
+- a self-hosted AI workstation accessible from any browser or mobile device
+- agentic browser automation & scraping
+- deep Open WebUI integration
+- messaging & bot connectivity with services like Telegram or WhatsApp for mobile-first remote control
+
+And zero AI required for core tools
+
+
+### Conduit: Open WebUI & AI
+
+Conduit is an open-source, native mobile client for Open WebUI, direct model endpoints, and self-hosted agents. Your chats live on your device first. Nothing routes through a backend the maintainer operates.
+
+**Great app that supports voice or continued conversation with J.A.R.V.I.S.!**
+
+More info at https://conduit.mobile/
 
 ## References
 
+* InterGenJLU's jarvis project [https://github.com/InterGenJLU/jarvis]
+* VisionQuest [https://en.wikipedia.org/wiki/VisionQuest]
+* Fedora Linux [https://fedoraproject.org/]
 * podman-compose [https://github.com/containers/podman-compose]
+* Systemd User Services [https://wiki.archlinux.org/title/Systemd/User]<br/>I realize the documentation is for ArchLinux, but its a solid resource and the concepts also apply to Fedora.
 * llama.cpp [https://github.com/ggml-org/llama.cpp]
+* NGINX Reverse Proxy [https://docs.nginx.com/nginx/admin-guide/web-server/reverse-proxy/]
 * Open WebUI [https://openwebui.com]
 * Open Terminal [https://github.com/open-webui/open-terminal]
 * Docling [https://docling.ai]
 * SearXNG [https://searxng.org]
 * Valkey [https://valkey.io]
+* Kokoro TTS [https://kokorottsai.com]
+* Faster Whisper [https://github.com/SYSTRAN/faster-whisper]
+* Black Forest Labs - FLUX.2 [https://bfl.ai/models/flux-2]
