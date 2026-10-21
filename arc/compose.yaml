@@ -1,0 +1,46 @@
+name: jarvis-arc
+
+services:
+  arc:
+    image: ghcr.io/ggml-org/llama.cpp:server-vulkan
+    container_name: jarvis_arc
+    pull_policy: missing
+
+    restart: unless-stopped
+
+    ports:
+      - ${LLAMA_PORT:-9931}:${LLAMA_PORT:-9931}
+
+    volumes:
+      # The repo's model library: ./models/{llm,img}.
+      - ${REPO_ROOT:-/home/michael/jarvis}/models:/models:Z
+
+    devices:
+      - "/dev/kfd"
+      - "/dev/dri"
+
+    command:
+      - "--port"
+      - ${LLAMA_PORT:-9931}
+      - "--device"
+      - $LLAMA_DEVICE
+      - "--models-dir"
+      - ${LLAMA_MODELS_DIR:-/models}
+      - "--models-preset"
+      - ${LLAMA_MODELS_PRESET:-/models/models-preset.ini}
+      - "--no-mmproj-offload"
+      - "--threads"
+      - ${LLAMA_THREADS:-8}
+      - "--parallel"
+      - ${LLAMA_PARALLEL:-1}
+      - "--models-max"
+      - ${LLAMA_MODELS_MAX:-1}
+      - "--sleep-idle-seconds"
+      - ${LLAMA_ARG_SLEEP_IDLE_SECONDS:--1}
+
+    cpuset: "8-15,24-31" # AMD Ryzen 9 7950X3D, CCD1 has higher clock freq
+
+    environment:
+      GGML_VK_VISIBLE_DEVICES: ${GGML_VK_VISIBLE_DEVICES:-1} 
+      LLAMA_ARG_ENDPOINT_SLOTS: ${LLAMA_ARG_ENDPOINT_SLOTS:-1}
+      LLAMA_ARG_ENDPOINT_METRICS: ${LLAMA_ARG_ENDPOINT_METRICS:-1}

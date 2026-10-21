@@ -9,7 +9,7 @@ search:
     - json
 
 server:
-  secret_key: "$(openssl rand -base64 30 | tr -d '/' | tr -d '+')"
+  secret_key: "change_me"
   image_proxy: true
 
 engines:
@@ -21,3 +21,6 @@ engines:
     inactive: true
   - name: torch
     inactive: true
+
+valkey:
+  url: "valkey://archie-data:6379/0"

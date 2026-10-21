@@ -1,0 +1,35 @@
+# jarvis-arc.service — Adaptive Reasoning Core
+# LLM container
+#
+# User-scope unit (systemctl --user). No sudo anywhere.
+#
+# Enabled at boot: the LLM container is the default GPU owner. The
+# host-side jarvis-phil service stops and restarts this unit around
+# each image generation (the swap flow), and always ends with the LLM
+# running.
+#
+# `podman-compose up` blocks while the container runs; `down` stops and
+# removes it, so a stopped LLM cannot self-resurrect and grab the GPU
+# back mid-swap (compose has restart: unless-stopped, and after `down`
+# there is no container left to restart).
+
+[Unit]
+Description=Adaptive Reasoning Core
+After=network-online.target
+
+[Service]
+Type=simple
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=REPO_ROOT=%h/jarvis
+ExecStart=/usr/bin/podman-compose -f ${REPO_ROOT}/arc/compose.yaml up
+ExecStop=/usr/bin/podman-compose -f ${REPO_ROOT}/arc/compose.yaml down
+TimeoutStopSec=60
+# If the unit process dies, the container (restart: unless-stopped) keeps
+# running; the supervisor's health checks + `podman pod` fallback recover.
+Restart=no
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=jarvis-arc
+
+[Install]
+WantedBy=default.target

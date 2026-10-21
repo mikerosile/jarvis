@@ -1,0 +1,31 @@
+# jarvis-theo.service — FLUX image container (on demand ONLY)
+#
+# User-scope unit (systemctl --user), runs as michael. No sudo anywhere.
+#
+# NOT enabled at boot. The host-side jarvis-phil service is the only thing
+# that starts/stops this unit, and it is always shut down after each
+# generation so the LLM container can reclaim the GPU.
+#
+# `podman-compose up` blocks while the container runs; `down` stops and
+# removes it on stop.
+
+[Unit]
+Description=Thought Holography and Extraction Operator
+After=network-online.target
+
+[Service]
+Type=simple
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=REPO_ROOT=%h/jarvis
+ExecStart=/usr/bin/podman-compose -f ${REPO_ROOT}/theo/compose.yaml up
+ExecStop=/usr/bin/podman-compose -f ${REPO_ROOT}/theo/compose.yaml down
+TimeoutStopSec=60
+# On-demand service: never auto-restart. If it dies mid-generation the
+# supervisor detects the failure and restores the LLM.
+Restart=no
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=jarvis-theo
+
+[Install]
+WantedBy=default.target

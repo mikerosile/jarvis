@@ -1,17 +1,29 @@
-# JARVIS — Open WebUI Stack
+# J.A.R.V.I.S. — Just A Rather Very Intelligent System
 
-A self-hosted LLM stack built with [podman-compose](https://github.com/containers/podman-compose). It combines a local model server, a chat frontend, and a set of supporting services, all wired together by `podman-compose.yaml`.
+A self-hosted general use A.I. stack built around the [Open-WebUI](https://openwebui.com) platform designed to leverage an AMD RDNA2 GPU with only 16GBs of VRAM. It contains all the services you would expect from a web based A.I chat portal including web searching, coding, text-to-speech, image generation (and editing) and document parsing.  The services are containized for portability.
+
+## Inspiration
+
+- I was inspired by the "[jarvis](https://github.com/InterGenJLU/jarvis)" project by InterGenJLU and notably their implementation of swapping models with a single GPU to support responsive LLM and quick image generation.
+- Disney+'s [VisionQuest](https://www.disneyplus.com/browse/entity-8744ec55-8d14-4631-99b4-c889a2d6013f), for which Vision has multiple A.I.'s compromising his system. In this project, J.A.R.V.I.S. is the entire system and each named service is a different component.
+- I don't want to pay for subscriptions or pay fees to Cloud/A.I. organizations to use A.I. or freely give my personal information to them.
+- I don't want to worry about token limits.
+- I want to maximize investment in existing hardware
 
 ## Decisions
 
-The specific choices in this setup were driven by the hardware the stack runs on and the goal of fast model switching:
+The specific choices in this setup were driven by the hardware the stack runs on:
 
-- **AMD RX 6950 XT with 16 GB VRAM (RDNA 2).** The host's GPU is an AMD card, so the Ollama service uses the ROCm image (`ollama/ollama:rocm`) and passes `/dev/kfd` and `/dev/dri` into the container for direct GPU access. `HSA_OVERRIDE_GFX_VERSION` is set so ROCm targets the correct kernel build for the RDNA 2 architecture.
-- **128 GB system RAM, 64 GB tmpfs for models.** The host has 128 GB of RAM. Half of that (64 GB) is allocated to a RAM-backed `tmpfs` mount over `/root/.ollama/models`. This lets models load and unload from RAM rather than disk, which is fast. Ollama is configured with `OLLAMA_MAX_LOADED_MODELS=1` so only a single model is ever resident, making rapid switching between models possible — the working set comfortably fits in the 64 GB tmpfs, and the large model files are streamed from RAM each time a model is selected rather than paged in from slower storage.
+- llama.cpp with vulkan support for the inference engine
+- Open-WebUI for the web portal user interface and service integration
+- Kokoro for its fast text-to-speech capabilities that can run in-browse
+- **AMD RX 6950 XT with 16 GB VRAM (RDNA 2)** the host's secodnary GPU dedicated to A.I. workloads
+- 128 GBs of System RAM
+- Samsung SSD 990 PRO 2TB for hosting/loading the model to ensure fast loading of models during GPU swap operations
 
 ## Prerequisites
 
-If running containers as rootless ...
+The container environment is expected to run rootlees.
 
 * The user running the containers will need to be a member of the "video" and "render" user groups.
 ```bash
@@ -22,93 +34,95 @@ sudo usermod -aG video,render $USER
 loginctl enable-linger $USER
 ```
 * Use podman-compose to create a systemd service to run the stack in the background.  See `podman-compose systemd --help` for instruction.
+* Install the HuggingFace CLI (`hf`) tool, which is used by the `models/` Makefile to download community model weights from [Hugging Face](https://huggingface.co). Documentation: <https://huggingface.co/docs/huggingface_hub/guides/cli>
 
-## Services
+## Services provided by J.A.R.V.I.S.
 
-| Service | Image | Port | Purpose |
-| --- | --- | --- | --- |
-| `ollama` | `ollama/ollama:rocm` | 11434 | Local LLM inference server (ROCm build, AMD GPU via `/dev/kfd` and `/dev/dri`). Models are kept in a 64 GB tmpfs mount, so they are not persisted to disk between restarts. |
-| `open-webui` | `ghcr.io/open-webui/open-webui:v0.11.3` | `OPEN_WEBUI_APP_PORT` (default 3000) | Web UI for chatting with models. Web search is enabled and delegated to SearXNG. |
-| `open-terminal` | `ghcr.io/open-webui/open-terminal` | 8000 | Container terminal tool exposed to Open WebUI; API access protected by `OPEN_TERMINAL_API_KEY`. |
-| `docling-serve` | `quay.io/docling-project/docling-serve:latest` | 5001 | Document conversion server (PDF/OCR/tables) used for document ingestion, with a remote-LLM picture description path enabled. |
-| `searxng-core` | `docker.io/searxng/searxng` | `SEARXNG_PORT` (default 8080) | Privacy-focused metasearch engine that backs Open WebUI's web search. Config mounted from `searxng-core-config/`. |
-| `searxng-valkey` | `docker.io/valkey/valkey:9-alpine` | — | Valkey (Redis-compatible) instance used as the SearXNG result cache, with persistence enabled (`--save 30 1`). |
+| Service Name | Application | Conatiner Image | TCP Port | Purpose |
+| --- | --- | --- | --- | --- |
+| [LOKI](./loki/README.md) | Open-WebUI | ghcr.io/open-webui/open-webui:v0.12.3 | 8080 | Web UI for chatting with models. |
+| [ARC](./arc/README.md) | llama.cpp | ghcr.io/ggml-org/llama.cpp:server-vulkan | 9931 | Local LLM inference server (llama.cpp, Vulkan backend) |
+| [THEO](./theo/README.md) | FLUX.2 | localhost/jarvis-theo:latest | 8190 | Image generation (txt2img) and editing (img2img) |
+| [PHIL](./phil/README.md) | GPU orchestrator | phil/app.py | 8191 | Manages the active GPU workload, swapping between LLM and image generation |
+| [ROXIE](./roxie/README.md) | Nginx | docker.io/library/nginx:alpine | 8443 | TLS Reverse Proxy for secure access |
+| [SHELLY](./shelly/README.md) | Open-Terminal | ghcr.io/open-webui/open-terminal:0.14.1 | 8001 | Container terminal tool exposed to Open WebUI | 
+| [ARCHIE](./archie/README.md) | SearXNG | docker.io/searxng/searxng:latest | 8089 | Privacy-focused metasearch engine that backs Open WebUI's web search. |
+| [REMY](./remy/README.md) | Docling | quay.io/docling-project/docling-serve-rocm71:v1.35.0_rocm71 | 5001 | Document conversion server (PDF/OCR/tables) used for document ingestion |
+| [SONIA](./sonia/README.md) | Whisper | docker.io/hwdsl2/whisper-server:latest | 9000 | Speech-To-Text for capturing audio from end user |
+| [ELOISE](./eloise/README.md) | Kokoro | ghcr.io/remsky/kokoro-fastapi-gpu:latest | 8880 | Text-To-Speech to give the A.I. assistant a voice |
 
-Persistent state for all services is kept in named volumes (`ollama`, `open-webui`, `open-terminal`, `searxng-core-data`, `searxng-valkey-data`).
+## Project Structure
+
+The repository root is organized around one directory per service, using the same names as the acronyms in the table above:
+
+```text
+jarvis/
+├── compose.yaml          # main stack definition for podman-compose (LOKI, ROXIE, ARCHIE, REMY, SONIA, ELOISE, SHELLY)
+├── .env                  # runtime configuration consumed by podman-compose; contains shell-generated secrets — must not be committed
+├── .miopen/              # ROCm/mioPen GPU kernel cache, generated per GPU (e.g. gfx1030 for the RX 6950 XT); safe to delete and rebuild
+├── arc/                  # ARC (llama.cpp LLM server): its own compose.yaml plus .env/.env.example; mounts ./models read-only as /models
+├── archie/               # ARCHIE (SearXNG): settings.yml and limiter.toml mounted into the container's config directory
+├── eloise/               # ELOISE (Kokoro TTS): text-to-speech giving J.A.R.V.I.S. its voice; docs here, service defined in root compose.yaml
+├── etc/ssl/certs/        # TLS CA root/intermediary certificates used by Open-WebUI for cert verification
+├── loki/                 # LOKI (Open-WebUI): chat web UI for J.A.R.V.I.S.; placeholder directory, service defined in the root compose.yaml
+├── models/               # shared model library for ARC (LLMs) and THEO (image generation), see below
+├── phil/                 # PHIL: Python GPU orchestrator that swaps the GPU between LLM inference and image generation
+├── remy/                 # REMY (Docling): document conversion server (PDF/OCR/tables) used by LOKI for document ingestion; docs here, service defined in root compose.yaml
+├── roxie/nginx.conf      # ROXIE: TLS reverse-proxy configuration for Nginx
+├── scripts/              # host helpers: install.sh, status.sh, llama_monitor.sh
+├── shelly/               # SHELLY (Open-Terminal): sandboxed container terminal exposed to Open WebUI; docs here, service defined in root compose.yaml
+├── sonia/data            # SONIA (Whisper) runtime data and downloaded model cache
+├── systemd/user          # user-scope systemd units that start ARC/PHIL/THEO at boot and drive the GPU swap flow
+├── theo/                 # THEO: FLUX.2 image generation service — Dockerfile, compose.yaml, app code, generated_images/
+└── 3rdparty/             # configs/workflows for external tools (ComfyUI JSON workflows, Continue.dev API configs)
+```
+
+### `./models/`
+
+This directory is the shared model library: ARC mounts it at `/models`, and THEO uses its image models directly. The important file here is **`models/models-preset.ini`** (referenced as `/models/models-preset.ini` from inside containers): the INI file llama.cpp loads in router mode via `--models-preset`. It holds a global default section (`[*]`) and one `[<model-dir>]` section per model defining its alias, the path to its weights/projection files, and per-model runtime settings such as context size, KV cache types, flash attention, and reasoning effort.
+
+The contents of `models/`:
+
+- **`llm/`** — LLM models for ARC in router mode. One subdirectory per model (e.g. `qwen3.8-27b-gsq-rco-iq3_s-mtp/`), named after the specific model and quantization, containing:
+  - `model.gguf` — the GGUF model weights.
+  - `mmproj-<dtype>.gguf` (e.g. `mmproj-bf16.gguf`) — optional multimodal projection weights for image understanding; present only on vision-capable models and referenced by the matching section in `models-preset.ini`.
+  - a small `model.url` recording where the weights were fetched from, used by the Makefile below.
+
+- **`img/`** — image generation models for THEO. One subdirectory per model (e.g. `FLUX.2-klein-4B/`), each being a whole Hugging Face repository download (weights, text encoder, tokenizer, VAE, scheduler, license and README).
+
+- **`Makefile`** — downloads LLM weights into place: for every subdirectory of `llm/` that contains a `model.url`, it runs `hf download <url>` and renames the result to `model.gguf`. This is how new models are added.
 
 ## Environment
 
-All runtime configuration lives in the `.env` file that is consumed by podman-compose for handling compose-level substitution. `/.env.rocm` is the reference/template copy of that file for this ROCm setup: it contains both the Ollama GPU settings and the stack-wide settings (ports, keys, SearXNG). Copy it to `.env` (or source it, as it contains shell-generated secrets) before first use.
+All runtime configuration lives in the `.env` file that is consumed by podman-compose for handling compose-level substitution. It holds the llama.cpp GPU settings and the stack-wide settings (ports, keys, SearXNG). The file contains shell-generated secrets and must not be committed.
 
 ### Variable reference
 
 | Variable | Used by | Purpose |
 | --- | --- | --- |
-| `ROCR_VISIBLE_DEVICES` | Ollama | Restricts which ROCm GPU (by index) the Ollama container can see and use. |
-| `HSA_OVERRIDE_GFX_VERSION` | Ollama | Overrides the detected GPU GFX version so ROCm picks the correct kernel targets (e.g. for unsupported or newer AMD GPUs). |
-| `OLLAMA_CONTEXT_LENGTH` | Ollama | Maximum context window (in tokens) Ollama is allowed to use for models. |
-| `OLLAMA_MAX_LOADED_MODELS` | Ollama | Maximum number of models that may be held in memory at once. |
-| `OLLAMA_KV_CACHE_TYPE` | Ollama | Quantization type used for the KV cache to reduce GPU memory usage during inference. |
-| `OLLAMA_FLASH_ATTENTION` | Ollama | Enables flash attention in Ollama (1 = on) for faster, lower-memory attention computation. |
+| `DOCLING_API_KEY` | Docling | API key required to use the `docling-serve` API. **Sensitive — generate a strong random value and never commit it.** |
+| `DOCLING_PORT` | Docling | Host port the `docling-serve` API is published on. |
+| `GGML_VK_VISIBLE_DEVICES` | llama.cpp | Selects which Vulkan GPU (by index) the container can see and use. Can contain a single index or multiple separated by commas with values like `0`, `0,1`, `1,0`. |
+| `LLAMA_ARG_ENDPOINT_METRICS` | llama.cpp | Enables the Prometheus-compatible metrics endpoint (`--metrics`; disabled by default, `1` = on). |
+| `LLAMA_ARG_ENDPOINT_SLOTS` | llama.cpp | Exposes the slots monitoring endpoint (`--slots`; enabled by default, `0` = off). |
+| `LLAMA_ARG_SLEEP_IDLE_SECONDS` | llama.cpp | Value passed to `--sleep-idle-seconds`: seconds of inactivity before the loaded model unloads itself from memory. |
+| `LLAMA_DEVICE` | llama.cpp | Compute device passed to the server via `--device` (e.g. `Vulkan0`). |
+| `LLAMA_MODELS_DIR` | llama.cpp | Directory passed to `--models-dir` that the router scans to discover models. |
+| `LLAMA_MODELS_MAX` | llama.cpp | Value passed to `--models-max`: maximum number of models resident in memory at once. |
+| `LLAMA_MODELS_PRESET` | llama.cpp | Path passed to `--models-preset` of the INI file holding per-model runtime settings. |
+| `LLAMA_PORT` | llama.cpp | Port the llama.cpp server listens on; also used for the host port mapping. |
+| `OPEN_TERMINAL_API_KEY` | Open Terminal | API key required to use the `open-terminal` container's API. **Sensitive — generate a strong random value and never commit it.** |
 | `OPEN_WEBUI_APP_PORT` | Open-WebUI | Host port the Open WebUI web interface is published on. |
-| `WEBUI_SECRET_KEY` | Open-WebUI | Secret key Open WebUI uses for signing sessions/tokens. **Generate a strong random value.** |
-| `OPEN_TERMINAL_API_KEY` | Open Terminal | API key required to use the `open-terminal` container's API. **Generate a strong random value.** |
-| `DOCLING_API_KEY` | Docling | API key required to use the `docling-serve` API. **Generate a strong random value.** |
-| `SEARXNG_VERSION` | SearXNG | Version tag of the SearXNG image to run. |
-| `SEARXNG_HOST` | SearXNG | Address SearXNG listens on inside its port mapping (`[::]` = all interfaces, IPv6/IPv4). |
-| `SEARXNG_PORT` | SearXNG |Host and container port the SearXNG instance is published on. |
 | `SEARXNG_QUERY_URL` | Open-WebUI | Base URL that Open WebUI uses to query SearXNG for web search results (`<query>` is replaced with the search term). |
-
-## Suggested models
-
-The following models were specifically chosen based on their size, quantization, and purpose. The "Suggested Use" column describes the type of work each model is best suited to.
-
-These models were chosen because they fit comfortably in 16 GB of VRAM. Keeping 100% of a model's weights in VRAM matters for performance: when the weights fit entirely on the GPU, every token is generated by the GPU alone. The moment a model is too large to fit, Ollama offloads the overflow to system RAM, and each token then requires moving weight data back and forth across the CPU–GPU bus (PCIe), which slows generation dramatically — often to a fraction of the all-VRAM speed. So a model that just barely fits is not as fast as it looks; only a fully resident model runs at full GPU speed.
-
-At the same time, the weights are only part of the memory picture. At runtime the model also needs a KV cache to hold its context (the prompt plus generated tokens): for each token, every attention layer stores key/value tensors, and that memory grows with context length, batch size, and layer count. A 128K-token conversation can require several gigabytes of VRAM even on a modest model. By staying small enough to fit with headroom to spare, these models leave additional VRAM available for that context, so long prompts and long conversations can be served entirely on the GPU rather than being truncated or spilled to slower memory.
-
-| Model | Suggested Use |
-| --- | --- |
-| `gpt-oss:20b` | General-purpose reasoning and conversation. Open-weight MoE model (20B total / ~5B active) that balances quality with low memory and fast inference. |
-| `llava:7b` | Multimodal image understanding. Accepts images alongside text for visual questions, OCR-style extraction, and description of figures/screenshots. |
-| `qwen2.5-coder:14b-instruct-q5_K_M` | Code generation, completion, and debugging. Instruct-tuned coding model (14B, q5_K_M quantized) for software-engineering tasks. |
-| `Qwen3.8-27B-UD-IQ3_XXS-128k:latest` | Long-context general chat and reasoning. 27B model with a 128K context window for summarizing, analyzing, and discussing large documents. |
-
-## SearXNG configuration
-
-The `searxng-core` container mounts `./searxng-core-config/` read-only into `/etc/searxng`, so the two files in that directory fully control SearXNG's behavior for this stack:
-
-### `searxng-core-config/settings.yml`
-
-General SearXNG settings. It uses SearXNG's default configuration (`use_default_settings: true`) with a few overrides:
-
-- `search.formats` enables the `json` format alongside `html`, which is what Open WebUI needs to consume search results as JSON.
-- `server.image_proxy` enables SearXNG's image proxy so result images are relayed through SearXNG (works around referrer/hotlink blocking).
-- A few engines (`wikidata`, `ahmia`, `torch`) are disabled.
-- **`server.secret_key` must be changed.** The value shipped in the repository is a placeholder and is committed to git. SearXNG uses this key to sign data (e.g. the limiter's link tokens), so anyone who knows it can forge tokens. Replace it with a long, random value of your own (e.g. `openssl rand -hex 32`) before exposing SearXNG to a network.
-
-### `searxng-core-config/limiter.toml`
-
-SearXNG's rate-limiting / anti-bot configuration:
-
-- `[botdetection]` — network prefix sizes used to group client IPs, plus the `trusted_proxies` list of reverse-proxy IPs whose `X-Forwarded-For` / `X-Real-IP` headers should be honored to recover the real client address.
-- `[botdetection.ip_limit]` — rate limiting controls, e.g. whether link-local (private LAN) addresses are exempt and whether the `link_token` method is active.
-- `[botdetection.ip_lists]` — explicit `block_ip` / `pass_ip` allow/block lists. IPs in `pass_ip` get unrestricted access and skip all other checks.
-
-**If you intend to use SearXNG from anything other than the host it runs on** (other machines on your network, other containers, etc.), add your private LAN subnet to the `pass_ip` list. Otherwise clients outside the host will hit the rate limiter and get their queries blocked or throttled. For example, on a `192.168.1.0/24` LAN:
-
-```toml
-pass_ip = [
-  '192.168.1.0/24',
-]
-```
-
-Adjust the CIDR to match your actual subnet. The reverse — restricting access to just the host — is achieved by leaving LAN subnets out of `pass_ip` and not publishing the port beyond localhost.
+| `WEBUI_SECRET_KEY` | Open-WebUI | Secret key Open WebUI uses for signing sessions/tokens. **Sensitive — generate a strong random value and never commit it.** |
+| `SEARXNG_HOST` | SearXNG | Address SearXNG listens on inside its port mapping (`[::]` = all interfaces, IPv6/IPv4). |
+| `SEARXNG_PORT` | SearXNG | Host and container port the SearXNG instance is published on. |
+| `SEARXNG_VERSION` | SearXNG | Version tag of the SearXNG image to run. |
 
 ## References
 
 * podman-compose [https://github.com/containers/podman-compose]
-* Ollama [https://ollama.com]
+* llama.cpp [https://github.com/ggml-org/llama.cpp]
 * Open WebUI [https://openwebui.com]
 * Open Terminal [https://github.com/open-webui/open-terminal]
 * Docling [https://docling.ai]

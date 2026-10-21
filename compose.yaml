@@ -1,0 +1,180 @@
+name: jarvis
+
+services:
+  roxie:
+    image: docker.io/library/nginx:alpine
+    container_name: jarvis_roxie
+
+    ports:
+      - "8443:8443"
+
+    volumes:
+      - ./roxie/nginx.conf:/etc/nginx/conf.d/default.conf:ro,Z
+      - /etc/pki/tls/private/roxie.key:/etc/nginx/certs/privkey.pem:ro,Z
+      - /etc/pki/tls/certs/roxie.crt:/etc/nginx/certs/fullchain.pem:ro,Z
+
+    restart: unless-stopped
+
+  loki:
+    image: ghcr.io/open-webui/open-webui:v0.12.3
+    container_name: jarvis_loki
+
+    restart: unless-stopped
+
+    #ports:
+    #  - "${OPEN_WEBUI_APP_PORT:-3000}:8080"
+
+    volumes:
+      - loki-data:/app/backend/data
+      - ./etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro,Z
+
+    environment:
+      WEBUI_URL: ${WEBUI_URL:-http://localhost:8080}
+      CORS_ALLOW_ORIGIN: ${CORS_ALLOW_ORIGIN:-*}
+      AIOHTTP_CLIENT_SESSION_SSL: "false"
+      REQUESTS_CA_BUNDLE: /etc/ssl/certs/ca-certificates.crt
+      SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+      WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:-change-me}
+      WEBUI_NAME: Open WebUI
+      CONTEXT_COMPACTION_TOKEN_THRESHOLD: ${CONTEXT_COMPACTION_TOKEN_THRESHOLD:-65000}
+      ENABLE_CONTEXT_COMPACTION: "true"
+      ENABLE_OPENAI_API: "false"
+      ENABLE_OLLAMA_API: "false"
+      ENABLE_RAG_LOCAL_WEB_FETCH: ${ENABLE_RAG_LOCAL_WEB_FETCH:-true}
+      ENABLE_WEB_SEARCH: "true"
+      WEB_SEARCH_ENGINE: "searxng"
+      WEB_SEARCH_RESULT_COUNT: 3
+      WEB_SEARCH_CONCURRENT_REQUESTS: 10
+      SEARXNG_QUERY_URL: ${SEARXNG_QUERY_URL:-http://host.docker.internal:8089/search?q=<query>}
+      DOCLING_PARAMS: "{\"do_ocr\": true, \"force_ocr\": false, \"pdf_backend\": \"pypdfium2\", \"ocr_engine\": \"tesseract\", \"ocr_lang\": \"eng\", \"table_mode\": \"accurate\"}"
+
+  eloise:
+    image: ghcr.io/remsky/kokoro-fastapi-gpu:latest
+    container_name: jarvis_eloise
+
+    restart: always
+
+    depends_on:
+      - loki
+
+    ports:
+      - 8880:8880
+
+  shelly:
+    image: ghcr.io/open-webui/open-terminal:0.14.1
+    container_name: jarvis_shelly
+
+    restart: unless-stopped
+
+    ports:
+      - "8001:8000"
+
+    volumes:
+      - shelly-data:/home/user
+
+    depends_on: loki
+
+    environment:
+      OPEN_TERMINAL_API_KEY: ${OPEN_TERMINAL_API_KEY:-change-me}
+      OPEN_TERMINAL_MULTI_USER: ${OPEN_TERMINAL_MULTI_USER:-false}
+      OPEN_TERMINAL_CORS_ALLOWED_ORIGINS: ${CORS_ALLOW_ORIGIN:-*}
+
+  remy:
+    image: quay.io/docling-project/docling-serve-rocm71:v1.35.0_rocm71
+    container_name: jarvis_remy
+
+    restart: unless-stopped
+
+    ports:
+      - ${DOCLING_PORT:-5001}:5001
+
+    cpuset: "8-15,24-31"
+    #devices:
+    #  - "/dev/kfd"
+    #  - "/dev/dri"
+
+    environment:
+      # Enable the web UI for testing
+      DOCLING_SERVE_ENABLE_UI: "true"
+      # CRITICAL: Required for picture description with external LLM APIs
+      DOCLING_SERVE_ENABLE_REMOTE_SERVICES: "true"
+      DOCLING_SERVE_ALLOW_CUSTOM_PICTURE_DESCRIPTION_CONFIG: "true"
+      # Maximum wait time for sync requests (seconds) - increase for large documents
+      DOCLING_SERVE_MAX_SYNC_WAIT: 600
+      # Number of local engine workers
+      DOCLING_SERVE_ENG_LOC_NUM_WORKERS: 2
+      # CPU thread configuration
+      DOCLING_NUM_THREADS: ${DOCLING_NUM_THREADS:-4}
+      # IMPORTANT: Keep at 1 to avoid "Task Not Found" errors
+      UVICORN_WORKERS: ${UVICORN_WORKERS:-1}
+      DOCLING_API_KEY: ${DOCLING_API_KEY:-change-me}
+      # For AMD GPU support
+      # https://rocm.docs.amd.com/en/latest/conceptual/gpu-isolation.html#rocr-visible-devices   
+      ROCR_VISIBLE_DEVICES: ${ROCR_VISIBLE_DEVICES:-0} 
+      ## This section is for compatibility with older cards
+      HSA_OVERRIDE_GFX_VERSION: ${HSA_OVERRIDE_GFX_VERSION:-11.0.0}
+      # HSA_ENABLE_SDMA: "0"
+      ## Enable experimental Flash/Mem-Efficient attention kernels on AMD GPU (aotriton) (RDNA 3+).
+      TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL: ${TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL:-1}
+
+    # For GPU support with NVIDIA:
+    # deploy:
+    #  resources:
+    #    reservations:
+    #      devices:
+    #        - driver: nvidia
+    #          count: all
+    #          capabilities: [gpu]
+
+  archie-core:
+    image: docker.io/searxng/searxng:${SEARXNG_VERSION:-latest}
+    container_name: jarvis_archie-core
+
+    restart: always
+
+    ports:
+      - ${SEARXNG_HOST:+${SEARXNG_HOST}:}${SEARXNG_PORT:-8080}:${SEARXNG_PORT:-8080}
+
+    volumes:
+      - ./archie/etc/searxng:/etc/searxng:Z
+      - archie-cache:/var/cache/searxng/
+
+    depends_on:
+      - archie-data
+
+    environment:
+      SEARXNG_VERSION: ${SEARXNG_VERSION:-latest}
+      SEARXNG_HOST: ${SEARXNG_HOST:-[::]}
+      SEARXNG_PORT: ${SEARXNG_PORT:-8089}
+
+  archie-data:
+    image: docker.io/valkey/valkey:9-alpine
+    container_name: jarvis_archie-data
+
+    command: valkey-server --save 30 1 --loglevel warning
+
+    restart: always
+
+    volumes:
+      - archie-data:/data/
+
+  sonia:
+    image: hwdsl2/whisper-server:latest
+    container_name: jarvis_sonia
+
+    volumes:
+      - ./sonia/data:/var/lib/whisper:Z
+
+    ports:
+      - 9000:9000
+
+    depends_on:
+      - loki
+
+    restart: always
+
+volumes:
+  shelly-data:
+  loki-data:
+  archie-cache:
+  archie-data:
