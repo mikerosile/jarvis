@@ -1,0 +1,34 @@
+# FLUX Image Generation Service Dependencies
+# Core requirements already included in base environment
+# This file documents additional dependencies for img2img feature
+
+# FastAPI server (REQUIRED - used by Dockerfile CMD)
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+
+# PyTorch with ROCm 7.1 support - installed in Dockerfile via pip index
+# torch==2.11.0+rocm7.1 (see Dockerfile line 12-13)
+
+# Core ML inference libraries (FLUX pipeline)
+diffusers>=0.30.0
+accelerate>=0.33.0
+transformers>=4.46.0
+
+# Image processing and array operations (already commonly used)
+Pillow>=10.0.0
+numpy>=2.0.0
+
+# New dependencies for test script:
+requests>=2.28.0  # HTTP client for API testing
+python-multipart
+
+# Development/testing utilities:
+pytest>=7.0.0      # Unit testing framework
+pytest-asyncio>=0.21.0  # Async test support (if needed)
+
+# Optional: For enhanced diagnostics
+matplotlib>=3.5.0  # Performance visualization
+pandas>=1.4.0      # Results aggregation
+
+# Note: The core img2img implementation uses standard libraries (PIL, numpy) 
+# that are included with diffusers and torch. All imports use existing packages.

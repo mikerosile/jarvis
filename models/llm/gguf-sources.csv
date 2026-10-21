@@ -1,0 +1,10 @@
+file,url
+gpt-oss-20b-Q8_0.gguf,https://huggingface.co/unsloth/gpt-oss-20b-GGUF/resolve/main/gpt-oss-20b-Q8_0.gguf
+gpt-oss-20b_mmproj-bf16.gguf,https://huggingface.co/aviallon/InternVL3_5-GPT-OSS-20B-A4B-Preview-GGUF/resolve/main/mmproj-bf16.gguf
+qwen2.5-Coder-3B-Q5_K_M.gguf,https://huggingface.co/bartowski/Qwen2.5-Coder-3B-GGUF/resolve/main/Qwen2.5-Coder-3B-Q5_K_M.gguf
+Qwen3-14B-Q4_K_M.gguf,https://huggingface.co/Qwen/Qwen3-14B-GGUF/resolve/main/Qwen3-14B-Q4_K_M.gguf
+Qwen3.5-35B-A3B-Q4_K_M.gguf,https://huggingface.co/unsloth/Qwen3.5-35B-A3B-GGUF/resolve/main/Qwen3.5-35B-A3B-Q4_K_M.gguf
+Qwen3.5-35B-A3B_mmproj-BF16.gguf,https://huggingface.co/unsloth/Qwen3.5-35B-A3B-GGUF/resolve/main/mmproj-BF16.gguf
+Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf,https://huggingface.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF/resolve/main/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf
+Qwen3.8-27B-UD-IQ4_XS.gguf,https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-UD-IQ4_XS.gguf
+Qwen3.8-27B_mmproj-BF16.gguf,https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/mmproj-BF16.gguf

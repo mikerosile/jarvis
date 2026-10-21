@@ -1,0 +1,56 @@
+name: jarvis-theo
+
+# FLUX image generation container.
+#
+#   * image built by scripts/install.sh:  podman build -t jarvis-theo theo/
+#   * managed by the user-scope unit jarvis-theo.service (on demand ONLY)
+#   * the host-side jarvis-phil service is the only thing that starts/stops it
+#   * loopback-only port: jarvis-phil is its sole client
+
+services:
+  theo:
+    image: jarvis-theo:latest
+    build: .
+    container_name: jarvis_theo
+
+    restart: "no"
+
+    ports:
+      - "127.0.0.1:8190:8190"
+
+    volumes:
+      # All models (read-only); PNG output shared with the host
+      - ${REPO_ROOT:-/home/stark/jarvis}/models:/models:ro,Z
+      - ${REPO_ROOT:-/home/stark/jarvis}/theo/generated_images:/images:rw,Z
+      # Persistent MIOpen compiled-kernel cache (+ tuning DB dir): kernels
+      # compile once into /miopen/cache and are reused across container
+      # restarts; with MIOPEN_FIND_MODE=2 (FAST) there is no tuning to
+      # persist, but the mount keeps the cache warm and any future tuned
+      # DB reusable
+      - ${REPO_ROOT:-/home/stark/jarvis}/.miopen:/miopen:rw,Z
+
+    devices:
+      - "/dev/kfd"
+      - "/dev/dri"
+
+    environment:
+      # AMD Radeon RX 6950 XT (gfx1030) under ROCm
+      HSA_OVERRIDE_GFX_VERSION: "10.3.0"
+      # MIOpen FAST find mode: DB hit -> tuned solver, miss -> immediate
+      # heuristic, never a search. The old FIND_MODE=3 + FIND_ENFORCE=3
+      # combo forced a non-persisting ~154s VAE-decode search in every
+      # fresh process (see edit_image.md, section 2.6).
+      MIOPEN_FIND_MODE: "2"
+      MIOPEN_USER_DB_PATH: /miopen/db
+      MIOPEN_CUSTOM_CACHE_DIR: /miopen/cache
+      # FLUX.2 klein-4B model directory (volume-mounted from $REPO_ROOT/models/img)
+      IMG_MODEL_PATH: /models/img/FLUX.2-klein-4B
+      FLUX_OUTPUT_DIR: /images
+      # The RX 6950 XT leaves only ~3 GiB of headroom over the 12.7 GiB
+      # model, so borderline allocations (e.g. the 1.46 GiB math-SDPA
+      # attention matrix for img2img's joint 8030-token sequence) can
+      # flakily fail with CUDA OOM on allocator/driver fragmentation.
+      # Expandable segments let PyTorch grow one virtual segment instead of
+      # requesting fresh driver allocations. No rebuild needed: each swap
+      # starts a fresh `podman-compose up`, which reads this file.
+      PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"

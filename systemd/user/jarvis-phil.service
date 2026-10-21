@@ -1,0 +1,56 @@
+# jarvis-phil.service — GPU workload supervisor (host process)
+#
+# User-scope unit (systemctl --user), runs as michael. No sudo anywhere.
+#
+# Always-on bridge between Open-WebUI and the GPU. When Open-WebUI's
+# built-in "Image Generation" / "Edit Image" cards (engine "openai")
+# POST to /v1/images/*, this service arbitrates the 16 GB GPU between
+# the two containerized workloads:
+#
+#   1. stop  jarvis-arc                 (LLM container, VRAM freed)
+#   2. start jarvis-theo                (FLUX container, model loads)
+#   3. poll  http://127.0.0.1:8190/health until "ready"
+#   4. POST  to FLUX /v1/images/* (body forwarded unchanged)
+#   5. stop  jarvis-theo                (VRAM freed)
+#   6. start jarvis-arc                 (LLM restored)
+#
+# It binds 0.0.0.0 (unlike the GPU containers, which stay loopback-only)
+# because the containerized Open-WebUI must reach it via
+# host.containers.internal or the LAN IP.
+#
+# The Python process runs from the project venv created by scripts/install.sh:
+#   phil/.venv
+
+[Unit]
+Description=jarvis-phil — GPU workload supervisor for jarvis-openwebui
+# Order after the LLM at boot so the startup log reports an accurate LLM
+# state (ordering only — the supervisor must start even if jarvis-arc
+# fails; it self-heals on the next image request).
+After=network-online.target jarvis-arc.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=PATH=%h/jarvis/phil/.venv/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=%h/jarvis
+# LLM API base URL (llama container). Port comes from arc/compose.yaml.
+Environment=LLM_BASE_URL=http://127.0.0.1:9931
+# Where generated PNGs live (must match the /images mount in theo/compose.yaml)
+Environment=IMAGE_OUTPUT_DIR=%h/jarvis/theo/generated_images
+# Base URL reported in the startup log and the /health "base_url" field
+# (informational - use it when configuring Open-WebUI's backend card).
+# If unset, it auto-detects the LAN IP (http://<lan-ip>:8191). Override if
+# the supervisor sits behind a reverse proxy or a different interface:
+#Environment=IMAGE_BASE_URL=http://192.168.234.54:8191
+# If set, the /v1/images/* proxy endpoints require the request header
+# X-Swap-Token: <value> (or Authorization: Bearer <value>); /health stays open.
+#Environment=SWAP_API_TOKEN=change-me
+ExecStart=%h/jarvis/phil/.venv/bin/python -m uvicorn phil.app:app --host 0.0.0.0 --port 8191
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=jarvis-phil
+
+[Install]
+WantedBy=default.target
